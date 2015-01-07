@@ -1,0 +1,13 @@
+// $Id$
+// vim:ft=javascript
+
+// If your extension references something external, use ARG_WITH
+// ARG_WITH("fast_excel", "for fast_excel support", "no");
+
+// Otherwise, use ARG_ENABLE
+// ARG_ENABLE("fast_excel", "enable fast_excel support", "no");
+
+if (PHP_FAST_EXCEL != "no") {
+	EXTENSION("fast_excel", "fast_excel.c");
+}
+
