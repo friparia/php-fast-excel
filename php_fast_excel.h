@@ -100,15 +100,41 @@ typedef struct _index_record{
 
 typedef struct _dbcell{
 	int offset_to_row;
-	short *offset_array;
+	unsigned short *offset_array;
 }dbcell;
+
+typedef struct _row_record{
+	unsigned short number;
+	unsigned short first_row;
+	unsigned short last_row;
+	unsigned short row_height;
+}row_record;
+
+typedef struct _labelsst_record{
+	unsigned short row;
+	unsigned short column;
+	unsigned short xf_index;
+	unsigned int sst_index;
+}labelsst_record;
+
+typedef struct _unicode_string{
+	short char_num;
+	char flag;
+	int ext_length;
+	unsigned char *string;
+}unicode_string;
+
+
+
 #define FREE_SID -1
 #define END_OF_CHAIN_SID -2
 #define SAT_SID -3
 #define MSAT_SID -4
 
-
+#define ROW_RECORD 0x208
+#define LABELSST_RECORD 0xFD
 #define INDEX_RECORD 0x20B
+#define SST_RECORD 0xFC
 /* 
   	Declare any global variables you may need between the BEGIN
 	and END macros here:     

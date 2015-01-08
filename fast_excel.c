@@ -22,7 +22,8 @@
 #include "config.h"
 #endif
 
-#define DEBUG 1
+#define DEBUG 0
+#define DEBUGMORE 0  
 
 #include "php.h"
 #include "php_ini.h"
@@ -40,7 +41,8 @@ static int le_fast_excel;
 PHP_FUNCTION(excel_get_array){
 	char *filename;
 	int filename_len;
-	int i,j;
+	int i,j,k;
+	array_init(return_value);
 
 
 	if(zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &filename, &filename_len) == FAILURE){
@@ -59,7 +61,7 @@ PHP_FUNCTION(excel_get_array){
 		RETURN_FALSE;
 	}
 
-#if DEBUG
+#if DEBUGMORW
 	php_printf("\nmcb_mark is");
 	for(i = 0;i < 8;i++){
 		php_printf("%3x", header.mcb_mark[i]);
@@ -190,45 +192,155 @@ PHP_FUNCTION(excel_get_array){
 	}
 
 	//record_stream is what we want
-	biff_record record;
 	unsigned char *data;
 	index_record index;
-	int rows = 0;
+	int dbcell_num = 0;
 	i = 0;
+	int fdcells = 0;
+	int sst_read = 0;
+	int index_read = 0;
+	unsigned int total_string_num = 0;
+	unsigned int unique_string_num = 0;
+	unsigned char *unicode_string_array;
+	unsigned int unicode_string_array_length;
 	while(i < workbook.stream_size){
+		biff_record record;
 		memcpy(&record, &record_stream[i], 4);
 		data = malloc(record.length);
 		memcpy(data, &record_stream[i + 4], record.length);
+#if DEBUGMORE
+		php_printf("\nRECORD_NUM=0x%4x, RECORD_LENGTH=%4d, RECORD_DATA=%s", record.number, record.length, data);
+#endif
 #if DEBUG
-		/* php_printf("\nRECORD_NUM=0x%4x, RECORD_LENGTH=%4d, RECORD_DATA=%s", record.number, record.length, data); */
+		if(record.number == 0xfd)
+			fdcells++;
 #endif
 		if(record.number == INDEX_RECORD){
 			memcpy(&index, data, 16);
 			unsigned int *cell_array = malloc(record.length - 16);
 			memcpy(cell_array, data + 16, record.length - 16);
 			index.cell_array = cell_array;
-			rows = (record.length - 16) / 4;
+			dbcell_num = (record.length - 16) / 4;
 
-#if DEBUG
+#if DEBUGMORE
 			php_printf("\nfirst row=%d, last row=%d, cell_array={", index.first_row, index.last_row);
 			for(i = 0; i < (record.length - 16 ) / 4; i++){
-				php_printf("0x%x,", *index.cell_array + i * 4);
+				php_printf("%d,", *(index.cell_array + i));
 			}
 			php_printf("}");
+			index_read = 1;
 #endif
+		}
+		if(record.number == SST_RECORD){
+			biff_record sst_record;
+			memcpy(&sst_record, &record_stream[i], 4);
+			memcpy(&total_string_num, &record_stream[i + 4], 4);
+			memcpy(&unique_string_num, &record_stream[i + 8], 4);
+			unicode_string_array = malloc(sst_record.length - 8);
+			unicode_string_array_length = sst_record.length - 12;
+			memcpy(unicode_string_array, &record_stream[i + 12], sst_record.length - 12);
+			sst_read = 1;
+		}
+
+		if(sst_read && index_read){
 			break;
 		}
 		free(data);
 		i = i + record.length + 4;
 	}
 
+	i = 0;
+	unsigned char byte_per_char = 1;
+	unsigned char **string_table = malloc(sizeof(unsigned char*) * unique_string_num);
+	k = 0;
+	while(i < unicode_string_array_length){
+		unsigned char *string;
+		unsigned int string_length;
+		unicode_string unicode;
+		memcpy(&unicode, &unicode_string_array[i], 3);
+		memcpy(&unicode.ext_length, &unicode_string_array[i + 3], 4);
+		if(unicode.flag == 5){
+			byte_per_char = 2;
+		}
+		string_length = byte_per_char * unicode.char_num;
+		string = (unsigned char *)malloc(string_length + 1);
+		string[string_length] = '\0';
+		memcpy(string, &unicode_string_array[i + 7], string_length * byte_per_char);
+#if DEBUGMORE
+		php_printf("\n%s", string);
+#endif
+		*(string_table + k) = string;
+		k++;
+		i += 2 + 1 + 4 + string_length +  unicode.ext_length;
+	}
+
+#if DEBUGMORE
+	php_printf("\ntotal=%d, unique=%d", total_string_num, unique_string_num);
+	for(i = 0; i < unicode_string_array_length; i++){
+		if(i%16 == 0)
+			php_printf("\n");
+		php_printf("%4X", unicode_string_array[i]);
+	}
+#endif
+
+	int dbcell_offset = 0;
+	int row_offset = 0;
+	int fdreads = 0;
+	/* zval *z_row; */
+	/* array_init(z_row); */
+	//each db
+	for(i = 0; i < dbcell_num; i++){
+		biff_record dbcell_record;
+		dbcell cell;
+		unsigned short* offset_array;
+		dbcell_offset = *(index.cell_array + i);
+		memcpy(&dbcell_record, &record_stream[dbcell_offset], 4);
+		memcpy(&cell, &record_stream[dbcell_offset + 4], 4);
+		offset_array = malloc(dbcell_record.length - 4);
+		memcpy(offset_array, &record_stream[dbcell_offset + 8], dbcell_record.length - 4);
+		row_offset = dbcell_offset - cell.offset_to_row; 
+
+		//first row
+		biff_record first_row_record;
+		memcpy(&first_row_record, &record_stream[row_offset], 4);
+		row_record row;
+		memcpy(&row, &record_stream[row_offset + 4], 8);
+		row_offset += first_row_record.length + 4;
 
 
+		//each row
+		for(j = 0; j < (dbcell_record.length - 4)/2; j++){
+			row_offset += *(offset_array + j);
+			biff_record row_first_cell_record;
+			memcpy(&row_first_cell_record, &record_stream[row_offset], 4);
+			int cell_offset = row_offset;
+			//each cell
+			for(k = 0; k < row.last_row - row.first_row; k++){
+				fdreads++;
+				biff_record cell_record;
+				memcpy(&cell_record, &record_stream[cell_offset], 4);
+#if DEBUGMORE
+				php_printf("\nRECORD_NUM=0x%4x, RECORD_LENGTH=%4d", cell_record.number, cell_record.length);
+#endif
+				labelsst_record labelsst;
+				memcpy(&labelsst.sst_index, &record_stream[cell_offset + 10], 4);
 
+				if(cell_record.number == LABELSST_RECORD){
+					add_next_index_string(return_value, *(string_table + labelsst.sst_index), 1); //write to php row 
+#if DEBUG
+					/* php_printf("\n%d", labelsst.sst_index); */
+					/* php_printf("\n%s", *(string_table + labelsst.sst_index)); */
+#endif
+				}
+				cell_offset += 4 + cell_record.length;
+			}
+			/* add_index_zval(return_value, j, z_row); */
+		}
+	}
 
-	
-
-
+#if DEBUG
+	php_printf("\nhas %d, read %d", fdcells, fdreads);
+#endif
 }
 ZEND_BEGIN_ARG_INFO(arginfo_excel_get_array, 0)
 ZEND_END_ARG_INFO()
