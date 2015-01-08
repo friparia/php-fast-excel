@@ -48,6 +48,67 @@ PHP_FUNCTION(confirm_fast_excel_compiled);	/* For testing, remove later. */
 PHP_FUNCTION(excel_get_array);	/* For testing, remove later. */
 PHP_FUNCTION(excel_write_array);	/* For testing, remove later. */
 
+typedef struct _mcb_header{
+	unsigned char mcb_mark[8];
+	unsigned char mcb_identify[16];
+	short revision;
+	short version;
+	short endianness;
+	short sector_size;
+	short short_sector_size;
+	unsigned char reserved[10];
+	int sat_sector_num;
+	int first_dir_stream_sid;
+	unsigned char reserved_2[4];
+	int standard_stream_size;
+	int first_ssat_sector_sid;
+	int ssat_sector_num;
+	int first_msat_sector_sid;
+	int msat_sector_num;
+	int first_msat_id_block[109];
+}mcb_header;
+
+typedef struct _mcb_dir{
+	unsigned char name[64];
+	short name_len;
+	char type;
+	int l_did;
+	int r_did;
+	int root_did;
+	unsigned char identify[16];
+	int user;
+	unsigned char create_time[8];
+	unsigned char last_modify_time[8];
+	int first_ssat_sector_sid;
+	int stream_size;
+	unsigned char reserved[4];
+}mcb_dir;
+
+typedef struct _biff_record{
+	short number;
+	short length;
+	unsigned char *data;
+}biff_record;
+
+typedef struct _index_record{
+	int reserved;
+	unsigned int first_row;
+	unsigned int last_row;
+	int reserved_2;
+	unsigned int *cell_array;
+}index_record;
+
+typedef struct _dbcell{
+	int offset_to_row;
+	short *offset_array;
+}dbcell;
+#define FREE_SID -1
+#define END_OF_CHAIN_SID -2
+#define SAT_SID -3
+#define MSAT_SID -4
+
+
+#define INDEX_RECORD 0x20B
 /* 
   	Declare any global variables you may need between the BEGIN
 	and END macros here:     

@@ -59,9 +59,6 @@ if test "$PHP_FAST_EXCEL" != "no"; then
   dnl
   dnl PHP_SUBST(FAST_EXCEL_SHARED_LIBADD)
 
-  PHP_NEW_EXTENSION(fast_excel, 
-      fast_excel.c  \
-      mcb.h,  \
-      mcb.c, 
-      $ext_shared)
+
+  PHP_NEW_EXTENSION(fast_excel, fast_excel.c,$ext_shared)
 fi

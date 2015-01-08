@@ -22,11 +22,14 @@
 #include "config.h"
 #endif
 
+#define DEBUG 1
+
 #include "php.h"
 #include "php_ini.h"
 #include "ext/standard/info.h"
 #include "php_fast_excel.h"
 
+#include <math.h>
 /* If you declare any globals in php_fast_excel.h uncomment this:
 ZEND_DECLARE_MODULE_GLOBALS(fast_excel)
 */
@@ -37,6 +40,7 @@ static int le_fast_excel;
 PHP_FUNCTION(excel_get_array){
 	char *filename;
 	int filename_len;
+	int i,j;
 
 
 	if(zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &filename, &filename_len) == FAILURE){
@@ -49,8 +53,181 @@ PHP_FUNCTION(excel_get_array){
 		RETURN_FALSE;
 	}
 
-	mcb_directory_stream *excel_stream = malloc(10);
-	excel_stream = mcd_read("excel");
+	mcb_header header; 
+	if(fread(&header, sizeof(unsigned char), 512, inputstream) == 0){
+		php_error(E_WARNING, "File %s's header not found", filename);
+		RETURN_FALSE;
+	}
+
+#if DEBUG
+	php_printf("\nmcb_mark is");
+	for(i = 0;i < 8;i++){
+		php_printf("%3x", header.mcb_mark[i]);
+	}
+	php_printf("\nmcb_indetify is");
+	for(i = 0;i < 16;i++){
+		php_printf("%3x", header.mcb_identify[i]);
+	}
+	php_printf("\nrevision=%d", header.revision);
+	php_printf("\nversion=%d", header.version);
+	php_printf("\nendianess=%d", header.endianness);
+	php_printf("\nsector size=%d", header.sector_size);
+	php_printf("\nshort sector size=%d", header.short_sector_size);
+	php_printf("\nsat sector num=%d", header.sat_sector_num);
+	php_printf("\nfirst dir stream sid=%d", header.first_dir_stream_sid);
+	php_printf("\nstandard stream size=%d", header.standard_stream_size);
+	php_printf("\nfirst ssat sector sid=%d", header.first_ssat_sector_sid);
+	php_printf("\nssat sector num=%d", header.ssat_sector_num);
+	php_printf("\nfirst msat sector sid=%d", header.first_msat_sector_sid);
+	php_printf("\nmsat sector num=%d", header.msat_sector_num);
+	php_printf("\nmsat array={");
+	for(i = 0;i < 109; i++){
+		php_printf("%d,",header.first_msat_id_block[i]);
+	}
+	php_printf("}\n");
+#endif
+
+	int sector_size = pow(2, header.sector_size);
+	int short_sector_size  = pow(2, header.short_sector_size);
+
+	if(header.endianness != -2){
+		php_error(E_WARNING, "Big-Endian not supported!");
+		RETURN_FALSE;
+	}
+
+	//READ THE MSAT
+	int first_msat_num = 0;
+	for(i = 0; i < 109; i++){
+		if(header.first_msat_id_block[i] != -1){
+			first_msat_num++;
+		}
+	}
+
+	int msat_id_num = first_msat_num + header.msat_sector_num * (sector_size/sizeof(int));
+#if DEBUG
+	php_printf("\nmsat_num=%d", msat_id_num);
+#endif
+
+	int msat_sid[msat_id_num];
+	for(i = 0; i < msat_id_num; i++){
+		msat_sid[i] = -1;
+	}
+
+	memcpy(msat_sid, header.first_msat_id_block, sizeof(int) * first_msat_num);
+
+	int mast_int_sector[128];
+	int p_msat_sector = header.first_msat_sector_sid;
+	for(i = 0; i < header.msat_sector_num; i++){
+		fseek(inputstream, 512 + sector_size * p_msat_sector, SEEK_SET);
+		fread(mast_int_sector, sizeof(int), sector_size / sizeof(int), inputstream);
+		for(j = 0; j < 127; j++){
+			if(mast_int_sector[j] >= 0){
+				msat_sid[109 + i * 128 + j - i] = mast_int_sector[j];
+			}else{
+				msat_sid[109 + i * 128 + j - i] = -1;
+			}
+		}
+		if(mast_int_sector[127] != -2){
+			p_msat_sector = mast_int_sector[127];
+		}else{
+			break;
+		}
+	}
+
+	int msat_num = 0;
+
+	for(i = 0; i < msat_id_num; i++){
+		if(msat_sid[i] >= 0){
+			msat_num++;
+		}
+	}
+
+#if DEBUG
+	php_printf("\nmsat array={");
+	for(i = 0;i < msat_num; i++){
+		php_printf("%d,",msat_sid[i]);
+	}
+	php_printf("}\n");
+#endif
+
+	int msat_size = sector_size * msat_num;
+	int sat_sid[msat_size/sizeof(int)];
+	for(i = 0; i < msat_size/4; i++){
+		sat_sid[i] = -1;
+	}
+
+	for(i = 0; i < msat_num; i++){
+		fseek(inputstream, 512 + msat_sid[i] * sector_size, SEEK_SET);
+		if(fread(&sat_sid[i * sector_size / sizeof(int)], 1, sector_size, inputstream) == 0){
+			php_error(E_WARNING, "MSAT cannot loaded");
+			RETURN_FALSE;
+		}
+	}
+
+#if DEBUG
+	php_printf("\nsat array={");
+	for(i = 0; i < msat_size/4; i++){
+		/* php_printf("%d,", sat_sid[i]); */
+	}
+	php_printf("}");
+#endif
+	
+	//READ THE 2nd DIR which is the workbook
+	mcb_dir workbook;
+	fseek(inputstream, 512 + 512 * header.first_dir_stream_sid + sizeof(mcb_dir) , SEEK_SET);
+	fread(&workbook, 1, sizeof(mcb_dir), inputstream);
+
+	unsigned char record_sector[sector_size];
+	unsigned char *record_stream = malloc(workbook.stream_size);
+	int sid = workbook.first_ssat_sector_sid;
+	i = 0;
+	fseek(inputstream, 512 + sid * sector_size, SEEK_SET);
+	while(sid != END_OF_CHAIN_SID){
+		fread(record_sector, sizeof(unsigned char), sector_size, inputstream);
+		memcpy(&record_stream[i * sector_size], record_sector, sector_size);
+		sid = sat_sid[sid];
+		i++;
+	}
+
+	//record_stream is what we want
+	biff_record record;
+	unsigned char *data;
+	index_record index;
+	int rows = 0;
+	i = 0;
+	while(i < workbook.stream_size){
+		memcpy(&record, &record_stream[i], 4);
+		data = malloc(record.length);
+		memcpy(data, &record_stream[i + 4], record.length);
+#if DEBUG
+		/* php_printf("\nRECORD_NUM=0x%4x, RECORD_LENGTH=%4d, RECORD_DATA=%s", record.number, record.length, data); */
+#endif
+		if(record.number == INDEX_RECORD){
+			memcpy(&index, data, 16);
+			unsigned int *cell_array = malloc(record.length - 16);
+			memcpy(cell_array, data + 16, record.length - 16);
+			index.cell_array = cell_array;
+			rows = (record.length - 16) / 4;
+
+#if DEBUG
+			php_printf("\nfirst row=%d, last row=%d, cell_array={", index.first_row, index.last_row);
+			for(i = 0; i < (record.length - 16 ) / 4; i++){
+				php_printf("0x%x,", *index.cell_array + i * 4);
+			}
+			php_printf("}");
+#endif
+			break;
+		}
+		free(data);
+		i = i + record.length + 4;
+	}
+
+
+
+
+
+	
+
 
 }
 ZEND_BEGIN_ARG_INFO(arginfo_excel_get_array, 0)

@@ -2,7 +2,7 @@
 /* config.h.in.  Generated from configure.in by autoheader.  */
 
 /* Whether to build fast_excel as dynamic module */
-/* #undef COMPILE_DL_FAST_EXCEL */
+#define COMPILE_DL_FAST_EXCEL 1
 
 /* Define to 1 if you have the <dlfcn.h> header file. */
 #define HAVE_DLFCN_H 1

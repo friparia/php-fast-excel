@@ -18,5 +18,9 @@ mkinstalldirs
 ryn==un-tests.php
 config.log
 run-tests.php
+.libs/
+*.lo
+*.la
+modules/
 
 
