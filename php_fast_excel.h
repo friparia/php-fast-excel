@@ -135,6 +135,8 @@ typedef struct _unicode_string{
 #define LABELSST_RECORD 0xFD
 #define INDEX_RECORD 0x20B
 #define SST_RECORD 0xFC
+
+int unicode2utf8(unsigned long unic, unsigned char *pOutput, int outSize);
 /* 
   	Declare any global variables you may need between the BEGIN
 	and END macros here:     

@@ -30,6 +30,7 @@
 #include "php_fast_excel.h"
 
 #include <math.h>
+#include <iconv.h>
 /* If you declare any globals in php_fast_excel.h uncomment this:
 ZEND_DECLARE_MODULE_GLOBALS(fast_excel)
 */
@@ -250,7 +251,6 @@ PHP_FUNCTION(excel_get_array){
 	}
 
 	i = 0;
-	unsigned char byte_per_char = 1;
 	unsigned char **string_table = malloc(sizeof(unsigned char*) * unique_string_num);
 	k = 0;
 	while(i < unicode_string_array_length){
@@ -259,16 +259,28 @@ PHP_FUNCTION(excel_get_array){
 		unicode_string unicode;
 		memcpy(&unicode, &unicode_string_array[i], 3);
 		memcpy(&unicode.ext_length, &unicode_string_array[i + 3], 4);
+
 		if(unicode.flag == 5){
-			byte_per_char = 2;
+			string_length = 3 * unicode.char_num + 1;
+			string = (unsigned char *)malloc(string_length);
+			string[string_length] = '\0'; 
+			for(j = 0; j < unicode.char_num; j++){
+				int unic = 0;
+				unsigned char *word = (unsigned char*)malloc(3);
+				unic = unicode_string_array[i + 7 + j] ;
+				memcpy(&unic, &unicode_string_array[i + 7 + j * 2 ], 2);
+				unicode2utf8(unic, word, 3);
+				memcpy(&string[j * 3], word, 3);
+			}
+		}else{
+			string_length = 1 * unicode.char_num;
+			string = (unsigned char *)malloc(string_length + 1);
+			string[string_length] = '\0';
+			memcpy(string, &unicode_string_array[i + 7], string_length);
 		}
-		string_length = byte_per_char * unicode.char_num;
-		string = (unsigned char *)malloc(string_length + 1);
-		string[string_length] = '\0';
-		memcpy(string, &unicode_string_array[i + 7], string_length * byte_per_char);
-#if DEBUG
-		php_printf("\n%s", string);
-#endif
+/* #if DEBUGa */
+		/* php_printf("\n%d", sizeof(*string)); */
+/* #endif */
 		*(string_table + k) = string;
 		k++;
 		i += 2 + 1 + 4 + string_length +  unicode.ext_length;
@@ -276,11 +288,6 @@ PHP_FUNCTION(excel_get_array){
 
 #if DEBUG
 	php_printf("\ntotal=%d, unique=%d", total_string_num, unique_string_num);
-	for(i = 0; i < unicode_string_array_length; i++){
-		if(i%16 == 0)
-			php_printf("\n");
-		php_printf("%4X", unicode_string_array[i]);
-	}
 #endif
 
 	int dbcell_offset = 0;
@@ -344,6 +351,63 @@ PHP_FUNCTION(excel_get_array){
 }
 ZEND_BEGIN_ARG_INFO(arginfo_excel_get_array, 0)
 ZEND_END_ARG_INFO()
+
+int unicode2utf8(unsigned long unic, unsigned char *pOutput,  int outSize){  
+  
+    if ( unic <= 0x0000007F )  
+    {  
+        // * U-00000000 - U-0000007F:  0xxxxxxx  
+        *pOutput     = (unic & 0x7F);  
+        return 1;  
+    }  
+    else if ( unic >= 0x00000080 && unic <= 0x000007FF )  
+    {  
+        // * U-00000080 - U-000007FF:  110xxxxx 10xxxxxx  
+        *(pOutput+1) = (unic & 0x3F) | 0x80;  
+        *pOutput     = ((unic >> 6) & 0x1F) | 0xC0;  
+        return 2;  
+    }  
+    else if ( unic >= 0x00000800 && unic <= 0x0000FFFF )  
+    {  
+        // * U-00000800 - U-0000FFFF:  1110xxxx 10xxxxxx 10xxxxxx  
+        *(pOutput+2) = (unic & 0x3F) | 0x80;  
+        *(pOutput+1) = ((unic >>  6) & 0x3F) | 0x80;  
+        *pOutput     = ((unic >> 12) & 0x0F) | 0xE0;  
+        return 3;  
+    }  
+    else if ( unic >= 0x00010000 && unic <= 0x001FFFFF )  
+    {  
+        // * U-00010000 - U-001FFFFF:  11110xxx 10xxxxxx 10xxxxxx 10xxxxxx  
+        *(pOutput+3) = (unic & 0x3F) | 0x80;  
+        *(pOutput+2) = ((unic >>  6) & 0x3F) | 0x80;  
+        *(pOutput+1) = ((unic >> 12) & 0x3F) | 0x80;  
+        *pOutput     = ((unic >> 18) & 0x07) | 0xF0;  
+        return 4;  
+    }  
+    else if ( unic >= 0x00200000 && unic <= 0x03FFFFFF )  
+    {  
+        // * U-00200000 - U-03FFFFFF:  111110xx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx  
+        *(pOutput+4) = (unic & 0x3F) | 0x80;  
+        *(pOutput+3) = ((unic >>  6) & 0x3F) | 0x80;  
+        *(pOutput+2) = ((unic >> 12) & 0x3F) | 0x80;  
+        *(pOutput+1) = ((unic >> 18) & 0x3F) | 0x80;  
+        *pOutput     = ((unic >> 24) & 0x03) | 0xF8;  
+        return 5;  
+    }  
+    else if ( unic >= 0x04000000 && unic <= 0x7FFFFFFF )  
+    {  
+        // * U-04000000 - U-7FFFFFFF:  1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx  
+        *(pOutput+5) = (unic & 0x3F) | 0x80;  
+        *(pOutput+4) = ((unic >>  6) & 0x3F) | 0x80;  
+        *(pOutput+3) = ((unic >> 12) & 0x3F) | 0x80;  
+        *(pOutput+2) = ((unic >> 18) & 0x3F) | 0x80;  
+        *(pOutput+1) = ((unic >> 24) & 0x3F) | 0x80;  
+        *pOutput     = ((unic >> 30) & 0x01) | 0xFC;  
+        return 6;  
+    }  
+  
+    return 0;  
+}  
 
 
 PHP_FUNCTION(excel_write_array){
