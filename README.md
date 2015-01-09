@@ -1,7 +1,7 @@
-#php-fast-excel
+# php-fast-excel
 
 PHP fast read and write excel file extension
-####It is still under development, so please be aware of the production environment
+##### It is still under development, so please be aware of the production environment
 
 ## Compare to PHPExcel
 First one is a 500 * 20 - cell .xls file
