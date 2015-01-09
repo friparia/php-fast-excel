@@ -22,15 +22,12 @@
 #include "config.h"
 #endif
 
-#define DEBUG 0
-
 #include "php.h"
 #include "php_ini.h"
 #include "ext/standard/info.h"
 #include "php_fast_excel.h"
 
 #include <math.h>
-#include <iconv.h>
 /* If you declare any globals in php_fast_excel.h uncomment this:
 ZEND_DECLARE_MODULE_GLOBALS(fast_excel)
 */
@@ -62,34 +59,6 @@ PHP_FUNCTION(excel_get_array){
 		RETURN_FALSE;
 	}
 
-#if DEBUG
-	php_printf("\nmcb_mark is");
-	for(i = 0;i < 8;i++){
-		php_printf("%3x", header.mcb_mark[i]);
-	}
-	php_printf("\nmcb_indetify is");
-	for(i = 0;i < 16;i++){
-		php_printf("%3x", header.mcb_identify[i]);
-	}
-	php_printf("\nrevision=%d", header.revision);
-	php_printf("\nversion=%d", header.version);
-	php_printf("\nendianess=%d", header.endianness);
-	php_printf("\nsector size=%d", header.sector_size);
-	php_printf("\nshort sector size=%d", header.short_sector_size);
-	php_printf("\nsat sector num=%d", header.sat_sector_num);
-	php_printf("\nfirst dir stream sid=%d", header.first_dir_stream_sid);
-	php_printf("\nstandard stream size=%d", header.standard_stream_size);
-	php_printf("\nfirst ssat sector sid=%d", header.first_ssat_sector_sid);
-	php_printf("\nssat sector num=%d", header.ssat_sector_num);
-	php_printf("\nfirst msat sector sid=%d", header.first_msat_sector_sid);
-	php_printf("\nmsat sector num=%d", header.msat_sector_num);
-	php_printf("\nmsat array={");
-	for(i = 0;i < 109; i++){
-		php_printf("%d,",header.first_msat_id_block[i]);
-	}
-	php_printf("}\n");
-#endif
-
 	int sector_size = pow(2, header.sector_size);
 	int short_sector_size  = pow(2, header.short_sector_size);
 
@@ -107,10 +76,6 @@ PHP_FUNCTION(excel_get_array){
 	}
 
 	int msat_id_num = first_msat_num + header.msat_sector_num * (sector_size/sizeof(int));
-#if DEBUG
-	php_printf("\nmsat_num=%d", msat_id_num);
-#endif
-
 	int msat_sid[msat_id_num];
 	for(i = 0; i < msat_id_num; i++){
 		msat_sid[i] = -1;
@@ -145,14 +110,6 @@ PHP_FUNCTION(excel_get_array){
 		}
 	}
 
-#if DEBUG
-	php_printf("\nmsat array={");
-	for(i = 0;i < msat_num; i++){
-		php_printf("%d,",msat_sid[i]);
-	}
-	php_printf("}\n");
-#endif
-
 	int msat_size = sector_size * msat_num;
 	int sat_sid[msat_size/sizeof(int)];
 	for(i = 0; i < msat_size/4; i++){
@@ -167,14 +124,6 @@ PHP_FUNCTION(excel_get_array){
 		}
 	}
 
-#if DEBUG
-	php_printf("\nsat array={");
-	for(i = 0; i < msat_size/4; i++){
-		/* php_printf("%d,", sat_sid[i]); */
-	}
-	php_printf("}");
-#endif
-	
 	//READ THE 2nd DIR which is the workbook
 	mcb_dir workbook;
 	fseek(inputstream, 512 + 512 * header.first_dir_stream_sid + sizeof(mcb_dir) , SEEK_SET);
@@ -209,28 +158,12 @@ PHP_FUNCTION(excel_get_array){
 		memcpy(&record, &record_stream[i], 4);
 		data = malloc(record.length);
 		memcpy(data, &record_stream[i + 4], record.length);
-#if DEBUG
-		php_printf("\nRECORD_NUM=0x%4x, RECORD_LENGTH=%4d, RECORD_DATA=%s", record.number, record.length, data);
-#endif
-#if DEBUG
-		if(record.number == 0xfd)
-			fdcells++;
-#endif
 		if(record.number == INDEX_RECORD){
 			memcpy(&index, data, 16);
 			unsigned int *cell_array = malloc(record.length - 16);
 			memcpy(cell_array, data + 16, record.length - 16);
 			index.cell_array = cell_array;
 			dbcell_num = (record.length - 16) / 4;
-
-#if DEBUG
-			php_printf("\nfirst row=%d, last row=%d, cell_array={", index.first_row, index.last_row);
-			for(i = 0; i < (record.length - 16 ) / 4; i++){
-				php_printf("%d,", *(index.cell_array + i));
-			}
-			php_printf("}");
-			index_read = 1;
-#endif
 		}
 		if(record.number == SST_RECORD){
 			biff_record sst_record;
@@ -278,17 +211,10 @@ PHP_FUNCTION(excel_get_array){
 			string[string_length] = '\0';
 			memcpy(string, &unicode_string_array[i + 7], string_length);
 		}
-/* #if DEBUGa */
-		/* php_printf("\n%d", sizeof(*string)); */
-/* #endif */
 		*(string_table + k) = string;
 		k++;
 		i += 2 + 1 + 4 + string_length +  unicode.ext_length;
 	}
-
-#if DEBUG
-	php_printf("\ntotal=%d, unique=%d", total_string_num, unique_string_num);
-#endif
 
 	int dbcell_offset = 0;
 	int row_offset = 0;
@@ -312,7 +238,6 @@ PHP_FUNCTION(excel_get_array){
 		memcpy(&row, &record_stream[row_offset + 4], 8);
 		row_offset += first_row_record.length + 4;
 
-
 		//each row
 		for(j = 0; j < (dbcell_record.length - 4)/2; j++){
 			MAKE_STD_ZVAL(row_array);
@@ -326,28 +251,17 @@ PHP_FUNCTION(excel_get_array){
 				fdreads++;
 				biff_record cell_record;
 				memcpy(&cell_record, &record_stream[cell_offset], 4);
-#if DEBUG
-				php_printf("\nRECORD_NUM=0x%4x, RECORD_LENGTH=%4d", cell_record.number, cell_record.length);
-#endif
 				labelsst_record labelsst;
 				memcpy(&labelsst.sst_index, &record_stream[cell_offset + 10], 4);
 
 				if(cell_record.number == LABELSST_RECORD){
 					add_next_index_string(row_array, *(string_table + labelsst.sst_index), 1); //write to php row 
-#if DEBUG
-					php_printf("\n%d", labelsst.sst_index);
-					php_printf("\n%s", *(string_table + labelsst.sst_index));
-#endif
 				}
 				cell_offset += 4 + cell_record.length;
 			}
 			zend_hash_index_update(Z_ARRVAL_P(return_value), i * 32 + j, (void *)&row_array, sizeof(zval *), NULL);
 		}
 	}
-
-#if DEBUG
-	php_printf("\nhas %d, read %d", fdcells, fdreads);
-#endif
 }
 ZEND_BEGIN_ARG_INFO(arginfo_excel_get_array, 0)
 ZEND_END_ARG_INFO()
