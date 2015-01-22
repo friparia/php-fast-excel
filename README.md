@@ -6,11 +6,11 @@ PHP fast read and write excel file extension
 ## Compare to PHPExcel
 First one is a 500 * 20 - cell .xls file
 
-![test1](http://file.friparia.com/test1.png)
+![test1](http://file.friparia.com/test1.jpg)
 
 Second one is a 60k * 20 - cell .xls file 
 
-![test2](http://file.friparia.com/test2.png)
+![test2](http://file.friparia.com/test2.jpg)
 
 ## Requirement
 - PHP 5.4+
